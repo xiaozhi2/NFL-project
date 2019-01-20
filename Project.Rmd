@@ -1,0 +1,230 @@
+---
+title: "Appendix"
+output: pdf_document
+---
+```{r}
+setwd("~/Desktop/stat432")
+library(dplyr)
+all_data = read.csv("hacknight_train.csv")
+n = nrow(all_data)
+nvar = ncol(all_data)
+
+n_test = floor(n/5)
+test = all_data[sample(n_test),]
+
+# denominators' variable name
+hyper_grid_den <- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS", "PS", "P3"),
+    trd_den = c("passatt", "passtwopta", "rushtwopta", "xpa", "fga")
+)
+
+# nominators' variable name
+hyper_grid_nom <- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS", "PS", "P3"),    
+    trd_nom = c("passcomp", "passtwoptm", "rushtwoptm", "xpmade", "fgm")
+)
+
+hyper_grid_percent <- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS", "PS", "P3"),
+    percentage_name = c("pass_percent", "passtwo_percent", "rushtwo_percent", "xp_percent", "fg_percent")
+)
+
+
+den_name = c(noquote(paste(hyper_grid_den[,1],"_",hyper_grid_den[,2],"_", hyper_grid_den[,3], sep="")))
+nom_name = c(noquote(paste(hyper_grid_nom[,1],"_",hyper_grid_nom[,2],"_", hyper_grid_nom[,3], sep="")))
+percentage_name = c(noquote(paste(hyper_grid_percent[,1],"_",hyper_grid_percent[,2],"_", hyper_grid_percent[,3], sep="")))
+
+dem_data = select(all_data, den_name)
+nom_data = select(all_data, nom_name)
+
+percentage = nom_data/dem_data
+colnames(percentage) = percentage_name
+
+# set NaN to 0
+for(i in 1:nrow(percentage)){
+    for(j in 1:ncol(percentage)){
+        percentage[i,j] = ifelse(is.nan(percentage[i,j]),0, percentage[i,j])
+    }
+}
+
+# delete Away team wins
+hyper_grid_away_win <- expand.grid(
+    fst_sec = c( "HmA", "AwA"),
+    snd_sec = c("CS", "PS", "P3"),
+    percentage_name = c("wins")
+)
+away_win_name = c(noquote(paste(hyper_grid_away_win[,1],"_",hyper_grid_away_win[,2],"_", hyper_grid_away_win[,3], sep="")))
+
+# delete rushtwo
+hyper_grid_rushtwo <- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS", "PS", "P3"),
+    percentage_name = c("rushtwo_percent")
+)
+rushtwo_name = c(noquote(paste(hyper_grid_rushtwo[,1],"_",hyper_grid_rushtwo[,2],"_", hyper_grid_rushtwo[,3], sep="")))
+
+data_percentage = all_data[ , -which(names(all_data) %in% c(den_name, nom_name, away_win_name))]
+data_percentage = cbind(data_percentage, percentage)
+data_percentage = data_percentage[ , -which(names(data_percentage) %in% c(rushtwo_name))]
+data_percentage = as.data.frame(data_percentage)
+```
+
+
+```{r}
+# get variables seprately for CS, P3, PS
+coln = sort(colnames(data_percentage))
+away_team_var = substr(coln[1:24],7, 1000)
+
+
+hyper_grid_allcs<- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS"),
+    trd_sec = away_team_var
+)
+allcs_name = c("week", noquote(paste(hyper_grid_allcs[,1],"_",hyper_grid_allcs[,2],"_", hyper_grid_allcs[,3], sep="")))
+
+hyper_grid_allp3<- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("P3"),
+    trd_sec = away_team_var
+)
+allp3_name = c("week", noquote(paste(hyper_grid_allp3[,1],"_",hyper_grid_allp3[,2],"_", hyper_grid_allp3[,3], sep="")))
+
+hyper_grid_allps<- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("PS"),
+    trd_sec = away_team_var
+)
+allps_name = c("week", noquote(paste(hyper_grid_allps[,1],"_",hyper_grid_allps[,2],"_", hyper_grid_allps[,3], sep="")))
+
+all_cs = as.data.frame(data_percentage[,which(names(data_percentage) %in% allcs_name)])
+all_p3 = as.data.frame(data_percentage[,which(names(data_percentage) %in% allp3_name)])
+all_ps = as.data.frame(data_percentage[,which(names(data_percentage) %in% allps_name)])
+```
+
+```{r}
+# check correlation between CS data and P3 data
+cs_no_week1 = all_cs[which(all_cs$week!=1), ]
+p3_no_week1 = all_p3[which(all_p3$week!=1),]
+ps_no_week1 = all_ps[which(all_ps$week!=1),]
+
+cs_p3_cor = matrix(0,ncol(cs_no_week1), 3)
+cs_colname = colnames(cs_no_week1)
+p3_colname = colnames(p3_no_week1)
+for(i in 1:ncol(cs_no_week1)){
+    cs_p3_cor[i,1]=cs_colname[i]
+    cs_p3_cor[i,2]=p3_colname[i]
+    cs_p3_cor[i,3]=cor(cs_no_week1[,i], p3_no_week1[,i])
+}
+
+cs_ps_cor = matrix(0,ncol(cs_no_week1), 3)
+ps_colname = colnames(ps_no_week1)
+for(i in 1:ncol(cs_no_week1)){
+    cs_ps_cor[i,1]=cs_colname[i]
+    cs_ps_cor[i,2]=ps_colname[i]
+    cs_ps_cor[i,3]=cor(cs_no_week1[,i], ps_no_week1[,i])
+}
+```
+
+
+```{r}
+# predict week 1 with p3 data
+cs_week1 = all_cs[which(all_cs$week==1), ]
+p3_week1 = all_p3[which(all_p3$week==1),]
+
+for(i in 2:ncol(cs_no_week1)){
+    m = lm(cs_no_week1[,i]~ p3_no_week1[,i])    
+    cs_week1[,i] = m$coefficients[2] * p3_week1[,i] + m$coefficients[1]
+}
+
+cs_rn = rownames(cs_week1)
+cs_cn = colnames(cs_week1)
+for(i in 1:nrow(cs_week1)){
+    for(j in 2:ncol(cs_week1)){
+        ridx = cs_rn[i]
+        cn = cs_cn[j]
+        data_percentage[ridx,which(colnames(data_percentage) == cn)] = cs_week1[i,j]
+    }
+}
+# xp_percent
+```
+
+
+
+
+
+
+```{r}
+notweek1_data = data_percentage[which(data_percentage$week!=1), ]
+notweek1_cor = as.data.frame(which(cor(notweek1_data)>0.7, arr.ind = T))
+cor07 = notweek1_cor[which(notweek1_cor$row != notweek1_cor$col),]
+coln = colnames(notweek1_data)
+cor07_name = matrix(0, nrow(cor07), 2)
+for(i in 1:nrow(cor07)){
+    cor07_name[i,1] = coln[cor07[i,]$col]
+    cor07_name[i,2] = coln[cor07[i,]$row]
+}
+```
+
+
+check correlation
+```{r}
+cor_matrix = abs(cor(data_percentage[,4:ncol(data_percentage)], use = "complete.obs"))
+cor75 = as.data.frame(which(cor_matrix >0.75, arr.ind=T))
+threthold = cor75[which(cor75$row != cor75$col),]
+
+```
+
+```{r}
+hist(data_percentage$AwA_P3_kickrettds)
+```
+
+```{r}
+n = nrow(data_percentage)
+nvar = ncol(data_percentage)
+
+n_test = floor(n/5)
+test_idx = sample(n_test)
+test = data_percentage[test_idx,]
+train=data_percentage[-test_idx,]
+```
+
+```{r}
+train<-scale(train,center=FALSE,scale = TRUE)
+```
+
+
+
+
+
+
+
+```{r}
+library("glmnet")
+library("caret")
+set.seed(123)
+model <- train(
+   homescore~., data = train[,-c(3)], method = "glmnet",
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10
+)
+# Best tuning parameter
+
+```
+
+```{r}
+test.data=test[,-c(2,3)]
+```
+
+```{r}
+predictions <- model %>% predict(test.data)
+```
+
+
+```{r}
+mean(abs(predictions-test$homescore))
+```
+

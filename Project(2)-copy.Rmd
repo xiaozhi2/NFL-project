@@ -1,0 +1,589 @@
+---
+title: "Appendix"
+output: pdf_document
+---
+
+## Data Preprocessing
+```{r}
+setwd("~/Desktop/stat432")
+library(dplyr)
+library(caret)
+library(gbm)
+library(h2o)
+library(randomForest)
+library(MASS)
+library(glmnet)
+library(mlbench)
+library(caretEnsemble)
+library(xgboost)
+library(GGally)
+set.seed(123)
+
+all_data = read.csv("hacknight_train.csv")
+
+# denominators' variable name
+hyper_grid_den <- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS", "PS", "P3"),
+    trd_den = c("passatt", "rushtwopta", "xpa", "fga")
+)
+
+# nominators' variable name
+hyper_grid_nom <- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS", "PS", "P3"),    
+    trd_nom = c("passcomp", "rushtwoptm", "xpmade", "fgm")
+)
+
+# create variable name for percentage variables
+hyper_grid_percent <- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS", "PS", "P3"),
+    percentage_name = c("pass_percent", "rushtwo_percent", "xp_percent", "fg_percent")
+)
+
+den_name = c(noquote(paste(hyper_grid_den[,1],"_",hyper_grid_den[,2],"_", hyper_grid_den[,3], sep="")))
+nom_name = c(noquote(paste(hyper_grid_nom[,1],"_",hyper_grid_nom[,2],"_", hyper_grid_nom[,3], sep="")))
+percentage_name = c(noquote(paste(hyper_grid_percent[,1],"_",hyper_grid_percent[,2],"_", hyper_grid_percent[,3], sep="")))
+
+dem_data = dplyr::select(all_data, den_name)
+nom_data = dplyr::select(all_data, nom_name)
+
+percentage = nom_data/dem_data
+colnames(percentage) = percentage_name
+
+# set NaN to 0
+for(i in 1:nrow(percentage)){
+    for(j in 1:ncol(percentage)){
+        percentage[i,j] = ifelse(is.nan(percentage[i,j]),0, percentage[i,j])
+    }
+}
+
+# delete Away team wins
+hyper_grid_away_win <- expand.grid(
+    fst_sec = c( "HmA", "AwA"),
+    snd_sec = c("CS", "PS", "P3"),
+    percentage_name = c("wins")
+)
+away_win_name = c(noquote(paste(hyper_grid_away_win[,1],"_",hyper_grid_away_win[,2],"_", hyper_grid_away_win[,3], sep="")))
+
+# delete list: rushtwo, xp, passtwoptm, passtwopta
+hyper_grid_delete <- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS", "PS", "P3"),
+    percentage_name = c("rushtwo_percent","xp_percent", "passtwoptm", "passtwopta", "kickrettds")
+)
+delete_name = c(noquote(paste(hyper_grid_delete[,1],"_",hyper_grid_delete[,2],"_", hyper_grid_delete[,3], sep="")))
+
+data_percentage = all_data[ , -which(names(all_data) %in% c(den_name, nom_name, away_win_name))]
+data_percentage = cbind(data_percentage, percentage)
+data_percentage = data_percentage[ , -which(names(data_percentage) %in% delete_name)]
+data_percentage = as.data.frame(data_percentage)
+```
+
+```{r}
+# data transformation
+# puntrets: log transformation 
+hyper_grid_puntrets <- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS"),
+    percentage_name = c("puntretyds")
+)
+puntrets_name = c(noquote(paste(hyper_grid_puntrets[,1],"_",hyper_grid_puntrets[,2],"_", hyper_grid_puntrets[,3], sep="")))
+data_percentage[puntrets_name] = log(data_percentage[puntrets_name] + 4)
+
+# fumbslost: log transformation
+hyper_grid_fumbslost <- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS"),
+    percentage_name = c("fumbslost")
+)
+fumbslost_name = c(noquote(paste(hyper_grid_fumbslost[,1],"_",hyper_grid_fumbslost[,2],"_", hyper_grid_fumbslost[,3], sep="")))
+data_percentage[fumbslost_name] = log(data_percentage[fumbslost_name] + 1)
+```
+
+```{r}
+hist(all_data$Aw_CS_fumbslost)
+hist(data_percentage$Aw_CS_fumbslost)
+```
+
+```{r}
+# get variables seprately for CS, P3, PS
+coln = sort(colnames(data_percentage))
+away_team_var = substr(coln[1:24],7, 1000)
+
+
+hyper_grid_allcs<- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("CS"),
+    trd_sec = away_team_var
+)
+allcs_name = c("week", noquote(paste(hyper_grid_allcs[,1],"_",hyper_grid_allcs[,2],"_", hyper_grid_allcs[,3], sep="")))
+
+hyper_grid_allp3<- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("P3"),
+    trd_sec = away_team_var
+)
+allp3_name = c("week", noquote(paste(hyper_grid_allp3[,1],"_",hyper_grid_allp3[,2],"_", hyper_grid_allp3[,3], sep="")))
+
+hyper_grid_allps<- expand.grid(
+    fst_sec = c("Hm", "HmA", "Aw", "AwA"),
+    snd_sec = c("PS"),
+    trd_sec = away_team_var
+)
+allps_name = c("week", noquote(paste(hyper_grid_allps[,1],"_",hyper_grid_allps[,2],"_", hyper_grid_allps[,3], sep="")))
+
+all_cs = as.data.frame(data_percentage[,which(names(data_percentage) %in% allcs_name)])
+all_p3 = as.data.frame(data_percentage[,which(names(data_percentage) %in% allp3_name)])
+all_ps = as.data.frame(data_percentage[,which(names(data_percentage) %in% allps_name)])
+```
+
+```{r}
+# check correlation between CS data and P3 data
+cs_no_week1 = all_cs[which(all_cs$week!=1), ]
+p3_no_week1 = all_p3[which(all_p3$week!=1),]
+ps_no_week1 = all_ps[which(all_ps$week!=1),]
+
+cs_p3_cor = matrix(0,ncol(cs_no_week1), 3)
+cs_colname = colnames(cs_no_week1)
+p3_colname = colnames(p3_no_week1)
+for(i in 1:ncol(cs_no_week1)){
+    cs_p3_cor[i,1]=cs_colname[i]
+    cs_p3_cor[i,2]=p3_colname[i]
+    cs_p3_cor[i,3]=cor(cs_no_week1[,i], p3_no_week1[,i])
+}
+
+cs_ps_cor = matrix(0,ncol(cs_no_week1), 3)
+ps_colname = colnames(ps_no_week1)
+for(i in 1:ncol(cs_no_week1)){
+    cs_ps_cor[i,1]=cs_colname[i]
+    cs_ps_cor[i,2]=ps_colname[i]
+    cs_ps_cor[i,3]=cor(cs_no_week1[,i], ps_no_week1[,i])
+}
+
+cs_ps_cor = as.data.frame(cs_ps_cor[-1,])
+cs_p3_cor = as.data.frame(cs_p3_cor[-1,])
+cs_ps_cor$V3 = as.numeric(levels(cs_ps_cor$V3))[cs_ps_cor$V3]
+cs_p3_cor$V3 = as.numeric(levels(cs_p3_cor$V3))[cs_p3_cor$V3]
+
+ggplot(data=cs_ps_cor, aes(cs_ps_cor$V3)) + 
+    geom_histogram(binwidth = 0.015, col="black", fill="grey", alpha = .2) +
+    labs(title="Correlation between CS variables and P3 variables") +
+    labs(x="Correlation", y="Count")
+
+ggplot(data=cs_p3_cor, aes(cs_p3_cor$V3)) + 
+    geom_histogram(binwidth = 0.015, col="black", fill="grey", alpha = .2) + 
+    labs(title="Correlation between CS variables and P3 variables") + 
+    labs(x="Correlation", y="Count")
+```
+
+
+```{r}
+# predict week 1 with p3 data
+cs_week1 = all_cs[which(all_cs$week==1), ] 
+p3_week1 = all_p3[which(all_p3$week==1),]
+
+for(i in 2:ncol(cs_no_week1)){
+    m = lm(cs_no_week1[,i]~ p3_no_week1[,i])    
+    cs_week1[,i] = m$coefficients[2] * p3_week1[,i] + m$coefficients[1]
+}
+
+cs_rn = rownames(cs_week1)
+cs_cn = colnames(cs_week1)
+for(i in 1:nrow(cs_week1)){
+    for(j in 2:ncol(cs_week1)){
+        ridx = cs_rn[i]
+        cn = cs_cn[j]
+        data_percentage[ridx,which(colnames(data_percentage) == cn)] = cs_week1[i,j]
+    }
+}
+```
+
+
+```{r}
+# Seperate data into home & away, training & testing
+n = nrow(data_percentage)
+nvar = ncol(data_percentage)
+
+n_test = floor(n/5)
+test_idx = sample(n_test)
+
+home_var = coln[125:247]
+home_idx = which(colnames(data_percentage) %in% home_var)
+
+home_data = data_percentage[,home_idx]
+home_train_data = home_data[-test_idx,]
+home_test_data = home_data[test_idx,]
+
+home_response = data_percentage[,2]
+home_train_response = home_response[-test_idx]
+home_test_response = home_response[test_idx]
+
+home_train = cbind(home_train_response, home_train_data)
+home_test = cbind(home_test_response, home_test_data)
+```
+
+
+
+
+
+
+
+
+## Variable Selection & model fitting
+
+```{r}
+#elestic net variable selection
+model = train(home_train_response~., data = home_train, method = "glmnet", trControl = trainControl("cv", number = 10), tuneLength = 10)
+model$bestTune
+
+# plot lambda min and lambda 1se
+FirstAttempt = glmnet::cv.glmnet(
+  x = base::as.matrix(home_train_data),
+  y = base::as.matrix(home_train_response),
+  alpha = model$bestTune[,1],
+  family = "gaussian",
+  nfolds = 10
+)
+
+FirstAttempt$lambda.min
+FirstAttempt$lambda.1se
+plot(FirstAttempt)
+
+# fit elastic net with tuned parameters
+FirstAttempt1 = glmnet::glmnet(
+  x = base::as.matrix(home_train_data),
+  y = base::as.matrix(home_train_response),
+  alpha = model$bestTune[,1],
+  family = "gaussian",
+  lambda = model$bestTune[,2],
+  standardize = FALSE
+)
+```
+
+```{r}
+elastic_net_variable = as.matrix(FirstAttempt1$beta)
+elastic_net_variable = subset(elastic_net_variable,elastic_net_variable[,1]!=0 )
+elastic_train = as.data.frame(cbind(home_train_data[,rownames(elastic_net_variable)], home_train_response))
+```
+
+### Elastic net model fitting
+```{r}
+elastic.pred = predict(FirstAttempt1, as.matrix(home_test_data))
+elastic.perf = mean(abs(elastic.pred-home_test$home_test_response))
+elastic.perf
+```
+The performance of elastic net is as above.
+
+### Random Forest model fitting with elastic net variable selection (?need tuning??)
+Then we fit a random forest model with variables we get from elastic net:
+```{r}
+rf_elastic = randomForest(home_train_data[,rownames(elastic_net_variable)], home_train_response, ntree = 500, mtry = 9, nodesize = 20, sampsize = 500)
+rf.pred_elastic = predict(rf_elastic, home_test_data)
+rf.perf_elastic = mean(abs(rf.pred_elastic-home_test_response))
+rf.perf_elastic
+```
+The performance of random forest with variables selected by elastic net is as above.
+
+### Elastic net with super learner
+```{r}
+# with elastic net, super learner.
+control = trainControl(method="repeatedcv", number=10, repeats=3, savePredictions=TRUE, classProbs=TRUE)
+models = caretList(home_train_response~., data=elastic_train, trControl=control, methodList=c( "rf", "glm", "gbm", "glmboost", "treebag", "svmLinear"))
+results = resamples(models)
+#summary(results)
+#dotplot(results)
+models.pred = predict(models, home_test_data)
+models.perf = mean(abs(models.pred-home_test_response))
+models.perf
+```
+
+### Random Forest model fitting (with tuning, without variable selection)
+```{r, eval=F}
+# random forest with tuning
+hyper_grid_rf = expand.grid(
+    ntree = c(200,500,1000),
+    mtry = c(8,10,15),
+    nodesize = c(20,30,50),
+    performance = 0
+)
+
+for (i in 1:nrow(hyper_grid_rf)){
+    rf.fit = randomForest(home_train_data, home_train_response, ntree = hyper_grid_rf$ntree[i], mtry = hyper_grid_rf$mtry[i], nodesize = hyper_grid_rf$nodesize[i], sampsize = 500)
+    rf.pred = predict(rf.fit, home_test_data)
+    hyper_grid_rf$performance[i] = mean(abs(rf.pred-home_test_response))    
+}
+rf_min_idx = which.min(hyper_grid_rf$performance)
+hyper_grid_rf[rf_min_idx,]
+```
+
+### Xgboost model fitting (with tuning, without variable selection)
+```{r}
+# xgboost with tuning
+hyper_grid_xg = expand.grid(
+    max_depth = c(1,2,3),
+    eta = c(0.01, 0.1,0.3),
+    nrounds = c(100,200,500),
+    performance = 0
+)
+
+for(i in 1:nrow(hyper_grid_xg)){
+    bst = xgboost(data = as.matrix(home_train_data), 
+              label = home_train_response, 
+              max.depth = hyper_grid_xg$max_depth[i],   # is it valid to have max.depth = 1?
+              eta = hyper_grid_xg$eta[i],
+              nthread = 10, 
+              nrounds = hyper_grid_xg$nrounds[i],
+              silent = 1,
+              verbose = F)
+    xg.pred = predict(bst, as.matrix(home_test_data))
+    hyper_grid_xg$performance[i] = mean(abs(xg.pred-home_test_response))     
+}
+
+xg_min_idx = which.min(hyper_grid_xg$performance)
+hyper_grid_xg[xg_min_idx,]
+```
+
+
+### random forest with variable importance variable selection method from h2o package
+```{r}
+library("h2o")
+h2o.init(nthreads=-1,max_mem_size = "10G") 
+m1<-as.h2o(home_train)
+
+var_importance_rf = list()
+MSE_train_rf = c(rep(0,20))
+MAE_train_rf = c(rep(0,20))
+MSE_cv_rf = c(rep(0,20))
+MAE_cv_rf = c(rep(0,20))
+
+for(i in 1:20)
+{
+  rf<-h2o.randomForest(training_frame = m1,x= 2:124,y=1,distribution = "AUTO",
+               ntree=100+50*i,max_depth = 5+ceiling(i/2),nbins_cats = i+1,nbins_top_level = 2^(10+ceiling(i/5)),
+               stopping_rounds = 2,stopping_metric = "MSE",nfolds = 10)
+  
+  var_importance_rf[[i]] = h2o.varimp(rf)[1:20,]
+  MSE_train_rf[i] = h2o.mse(rf)
+  MAE_train_rf[i] = h2o.mae(rf)
+  MSE_cv_rf[i] = h2o.mse(rf,xval=TRUE)
+  MAE_cv_rf[i] = h2o.mae(rf,xval=TRUE)
+}
+```
+
+```{r, fig.width=20, fig.height=20}
+rank_matrix_rf = sapply(var_importance_rf,function(x)x[,1])
+colnames(rank_matrix_rf) = paste(rep("RF",20),1:20)
+rownames(rank_matrix_rf) = paste(rep("rank",20),1:20)
+
+importance_matrix_rf = sapply(var_importance_rf,function(x)x[,3])
+colnames(importance_matrix_rf) = paste(rep("RF",20),1:20)
+rownames(importance_matrix_rf) = paste(rep("rank",20),1:20)
+
+candidator_rf = attributes(table(rank_matrix_rf))$dimnames[[1]]
+##notice:the rank of variables differs from average rank and average importance
+average_rank_rf = sapply(candidator_rf,function(x)mean(which(rank_matrix_rf==x,arr.ind = TRUE)[,1]))            
+average_rank_rf = average_rank_rf[order(average_rank_rf,decreasing = FALSE)]
+average_importance_rf = sapply(candidator_rf,function(x)mean(importance_matrix_rf[which(rank_matrix_rf==x,arr.ind = TRUE)])) 
+average_importance_rf = average_importance_rf[order(average_importance_rf,decreasing = TRUE)]
+num_var = length(average_importance_rf)
+average_rf = as.data.frame(cbind(paste(rep("rank",num_var),1:num_var),attributes(average_importance_rf)$names,round(average_importance_rf,3)))
+colnames(average_rf) = c("rank","variables","score")
+ggplot(average_rf,aes(x=rank,y=as.numeric(as.character(score))))+geom_bar(stat="identity",fill="red")+
+  coord_flip()+scale_x_discrete(limits=c(paste(rep("rank",num_var),num_var:1)))+
+  geom_text(label=average_rf$variables,size=7,hjust=-0.3)+ylim(c(0,1.05))+
+  labs(x="RandomForest Average Rank",y="RandomForest Average importance")
+```
+
+
+```{r}
+candidator = attributes(table(rank_matrix_rf))$dimnames[[1]]
+h2o.shutdown()
+
+selected_var = average_rf$variables[1:30]
+##calculating MAE of RF by the Top30 importance variables selected by RF
+#label.rf = sapply(selected_var,function(x) which(colnames(home_train_data)==x))
+#larf_train = as.data.frame(cbind(home_train_data[,label.rf], home_train_response))
+
+
+rf_var_selection = expand.grid(
+    ntree = c(200,500,1000),
+    mtry = c(8,10,15),
+    nodesize = c(20,30,50),
+    performance = 0
+)
+
+for (i in 1:nrow(rf_var_selection)){
+    rf.fit = randomForest(home_train_data[,selected_var], 
+                          home_train_response, 
+                          ntree = rf_var_selection$ntree[i], 
+                          mtry = rf_var_selection$mtry[i], 
+                          nodesize = rf_var_selection$nodesize[i], 
+                          sampsize = 500)
+    rf.pred = predict(rf.fit, home_test_data)
+    rf_var_selection$performance[i] = mean(abs(rf.pred-home_test_response))    
+}
+rf_min_idx = which.min(rf_var_selection$performance)
+rf_var_selection[rf_min_idx,]
+```
+
+
+### GBM with variables after random forest variable selection
+```{r}
+library(gbm)
+hyper_grid_GBM = expand.grid(
+    shrinkage = c(0.005, .01, .5),
+    interaction.depth = c(3, 5, 8),
+    n.minobsinnode = c(3 ,5, 8),
+    bag.fraction = c(.65, .8, 1), 
+    optimal_trees = 0,               # a place to dump results
+    min_RMSE = 0                     # a place to dump results
+)
+
+formula = paste(var, sep = "", collapse = "+")
+
+for(i in 1:nrow(hyper_grid_GBM)) {
+    # train model
+    gbm.tune <- gbm(
+        formula =  home_train_response ~ .,
+        distribution = "gaussian",
+        data = home_train[,var],
+        n.trees = 5000,
+        interaction.depth = hyper_grid_GBM$interaction.depth[i],
+        shrinkage = hyper_grid_GBM$shrinkage[i],
+        n.minobsinnode = hyper_grid_GBM$n.minobsinnode[i],
+        bag.fraction = hyper_grid_GBM$bag.fraction[i],
+        train.fraction = .75,
+        n.cores = NULL, # will use all cores by default
+        verbose = FALSE
+    )
+    hyper_grid_GBM$optimal_trees[i] = which.min(gbm.tune$valid.error)
+    hyper_grid_GBM$min_RMSE[i] = sqrt(min(gbm.tune$valid.error))
+}
+
+gbm.fit.final = gbm(
+    formula = home_train_response ~ .,
+    distribution = "gaussian",
+    data = home_train[,var],
+    n.trees = 427,
+    interaction.depth = 5,
+    shrinkage = 0.01,
+    n.minobsinnode = 3,
+    bag.fraction = 0.65 , 
+    train.fraction = 1,
+    n.cores = NULL, # will use all cores by default
+    verbose = FALSE
+) 
+
+gbm_predict = predict(gbm.fit.final, n.trees = gbm.fit.final$n.trees, home_test_data)
+gbm_performance = mean(abs(gbm_predict-home_test_response))
+```
+
+
+
+## Ensemble (GBM and Random Forest)
+```{r}
+h2o.init(nthreads=-1,max_mem_size = "10G") 
+m1=as.h2o(home_train)
+m2=as.h2o(home_test)
+
+colnames(home_test)[1] = "y"
+colnames(home_train)[1] = "y"
+y = "y"
+x = setdiff(colnames(home_train), y)
+nfolds = 5
+
+  rf<-h2o.randomForest(training_frame = m1,x= 2:124,y=1,distribution = "AUTO",
+               ntree=100+50*i,max_depth = 5+ceiling(i/2),nbins_cats = i+1,nbins_top_level = 2^(10+ceiling(i/5)),
+               stopping_rounds = 2,stopping_metric = "MSE",nfolds = 10)
+  
+
+my_gbm = h2o.gbm(x = 2:124,
+                  y = 1,
+                  training_frame = m1,
+                  distribution = "AUTO",
+                  ntrees = 10,
+                  max_depth = 3,
+                  min_rows = 2,
+                  learn_rate = 0.2,
+                  nfolds = nfolds,
+                  fold_assignment = "Modulo",
+                  keep_cross_validation_predictions = TRUE,
+                  seed = 1)
+
+my_rf = h2o.randomForest(x = 2:124,
+                          y = 1,
+                          training_frame = m1,
+                          ntrees = 50,
+                          nfolds = nfolds,
+                          fold_assignment = "Modulo",
+                          keep_cross_validation_predictions = TRUE,
+                          seed = 1)
+
+ensemble <- h2o.stackedEnsemble(x = x,
+                                y = y,
+                                training_frame = m1,
+                                model_id = "my_ensemble_binomial",
+                                base_models = list(my_gbm@model_id, my_rf@model_id))
+
+
+# Eval ensemble performance on a test set
+perf = h2o.performance(ensemble, newdata = m2)
+# Compare to base learner performance on the test set
+perf_gbm_test = h2o.performance(my_gbm, newdata = m2)
+perf_rf_test = h2o.performance(my_rf, newdata = m2)
+```
+
+
+## PCA
+```{r}
+# PCA
+pca = prcomp(home_train_data, scale. = TRUE)
+
+# Plot 
+par(mar = rep(2, 4))
+plot(pca, type = "l")
+
+#compute standard deviation of each principal component
+std_dev = pca$sdev
+
+#compute variance
+pr_var <- std_dev^2
+
+#check variance of first 10 components
+pr_var[1:10]
+
+#proportion of variance explained
+prop_varex <- pr_var/sum(pr_var)
+prop_varex[1:20]
+
+# This shows that first principal component explains 6.02% variance. Second component explains 4.91% variance. Third component explains 4.73% variance and so on.
+
+plot(prop_varex, xlab = "Principal Component",
+             ylab = "Proportion of Variance Explained",
+             type = "b")
+
+#cumulative scree plot
+plot(cumsum(prop_varex), xlab = "Principal Component",
+              ylab = "Cumulative Proportion of Variance Explained",
+              type = "b")
+# Let us interpret the results of pca using biplot graph. Biplot is used to show the proportions of each variable along the two principal components.
+pca$rotation=-pca$rotation
+pca$x=-pca$x
+biplot (pca , scale =0)
+# 
+ggplot(data = data.frame(pca$x), aes(x=PC1, y=PC2)) + 
+        geom_point(size = 2)
+
+# Predict 
+pca.pred = predict(pca, newdata = home_test_data)
+pca.perf = mean(abs(pca.pred-home_test_response))
+pca.perf
+```
+
+
+
+
+
+
